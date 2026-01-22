@@ -1,0 +1,665 @@
+-- Universal Jailbreak Farm Script
+-- Combines features from Kimbo's Krackpipe + HOKALAZA + Multiple Scripts
+-- Version: 1.0.0
+
+--[[ SERVICES ]]--
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+local StarterGui = game:GetService("StarterGui")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+--[[ PLAYER ]]--
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Character = char
+    wait(0.1)
+    HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
+end)
+
+--[[ SETTINGS ]]--
+local Settings = {
+    -- Farming
+    AutoFarm = false,
+    FarmMode = "Bank",
+    AutoCollect = false,
+    AutoEscape = false,
+    AutoRob = false,
+    AutoArrest = false,
+    
+    -- Combat
+    SilentAim = false,
+    FOVSize = 100,
+    ShowFOV = false,
+    WallCheck = true,
+    TeamCheck = true,
+    NoRecoil = false,
+    NoSpread = false,
+    InfiniteAmmo = false,
+    
+    -- Vehicle
+    VehicleSpeed = 100,
+    InfNitro = false,
+    AutoFlip = false,
+    
+    -- Player
+    WalkSpeed = 16,
+    JumpPower = 50,
+    InfJump = false,
+    NoFall = false,
+    NoRagdoll = false,
+    AntiAFK = false,
+    
+    -- ESP
+    PlayerESP = false,
+    ShowNames = false,
+    ShowDistance = false,
+    ShowHealth = false,
+}
+
+--[[ STATUS ]]--
+local Status = {
+    CurrentAction = "Idle",
+    RobberiesCompleted = 0,
+    ArrestsMade = 0,
+    MoneyFarmed = 0,
+}
+
+--[[ UTILITIES ]]--
+local function Notify(title, text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = 3,
+        })
+    end)
+end
+
+local function UpdateStatus(action)
+    Status.CurrentAction = action
+end
+
+--[[ ANTI-AFK ]]--
+task.spawn(function()
+    LocalPlayer.Idled:Connect(function()
+        if Settings.AntiAFK then
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end
+    end)
+end)
+
+--[[ MOVEMENT FUNCTIONS ]]--
+local function TeleportTo(position)
+    if not HumanoidRootPart then return end
+    HumanoidRootPart.CFrame = CFrame.new(position)
+    wait(0.1)
+end
+
+local function SmoothFlyTo(position, speed)
+    if not HumanoidRootPart or not Character then return end
+    
+    speed = speed or 50
+    local humanoid = Character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+    
+    HumanoidRootPart.Anchored = true
+    humanoid.PlatformStand = true
+    
+    local currentPos = HumanoidRootPart.Position
+    local flightHeight = 200
+    
+    local waypoints = {
+        Vector3.new(currentPos.X, currentPos.Y + flightHeight, currentPos.Z),
+        Vector3.new(position.X, position.Y + flightHeight, position.Z),
+        Vector3.new(position.X, position.Y + 15, position.Z),
+    }
+    
+    for i, waypoint in ipairs(waypoints) do
+        if not HumanoidRootPart then break end
+        
+        local distance = (waypoint - HumanoidRootPart.Position).Magnitude
+        local duration = distance / speed
+        local startPos = HumanoidRootPart.Position
+        local startTime = tick()
+        
+        while tick() - startTime < duration do
+            if not HumanoidRootPart then break end
+            
+            local alpha = (tick() - startTime) / duration
+            alpha = math.clamp(alpha, 0, 1)
+            
+            local currentWaypoint = startPos:Lerp(waypoint, alpha)
+            HumanoidRootPart.CFrame = CFrame.new(currentWaypoint)
+            
+            wait()
+        end
+        
+        HumanoidRootPart.CFrame = CFrame.new(waypoint)
+    end
+    
+    wait(2)
+    HumanoidRootPart.CFrame = CFrame.new(Vector3.new(position.X, position.Y + 15, position.Z))
+    wait(0.5)
+    HumanoidRootPart.Anchored = false
+    
+    if humanoid then
+        humanoid.PlatformStand = false
+    end
+end
+
+--[[ JAILBREAK FUNCTIONS ]]--
+local function IsInJail()
+    if LocalPlayer.Team and LocalPlayer.Team.Name == "Prisoner" then
+        return true
+    end
+    return false
+end
+
+local function Escape()
+    if not IsInJail() then return end
+    
+    UpdateStatus("Escaping jail")
+    Notify("🚨 Escaping", "Breaking out...")
+    
+    local safePos = HumanoidRootPart.Position + Vector3.new(500, 0, 500)
+    TeleportTo(safePos)
+    
+    wait(2)
+    Status.EscapesMade = (Status.EscapesMade or 0) + 1
+    UpdateStatus("Idle")
+    Notify("✅ Escaped", "Freedom!")
+end
+
+local BankAutoRob = {
+    {Pos = {51, 18.06, 856.5}, Yield = 2, Status = "Starting robbery"},
+    {Pos = {29.71, 0.73, 815.25}, Yield = 15, Status = "Opening vault"},
+    {Pos = {18.37, 0.7659, 822.25}, Yield = 30, Status = "Collecting $$$"},
+    {Pos = {10, 18, 784}, Status = "Finishing robbery"}
+}
+
+local function RobTheBank()
+    for _, step in pairs(BankAutoRob) do
+        if not Settings.AutoRob then break end
+        
+        UpdateStatus(step.Status)
+        Notify("🏦 Auto Rob", step.Status)
+        
+        for i=1,2 do
+            wait()
+            if HumanoidRootPart then
+                HumanoidRootPart.CFrame = CFrame.new(unpack(step.Pos))
+            end
+        end
+        
+        if step.Yield then
+            wait(step.Yield)
+        end
+    end
+    
+    UpdateStatus("Idle")
+    Notify("✅ Bank Done", "Rob complete!")
+    Status.RobberiesCompleted = Status.RobberiesCompleted + 1
+end
+
+--[[ SILENT AIM SYSTEM ]]--
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 50
+FOVCircle.Radius = Settings.FOVSize
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+FOVCircle.Transparency = 1
+FOVCircle.Visible = Settings.ShowFOV
+FOVCircle.Filled = false
+
+local Camera = workspace.CurrentCamera
+
+local function UpdateFOVCircle()
+    if FOVCircle then
+        local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        FOVCircle.Position = screenCenter
+        FOVCircle.Radius = Settings.FOVSize
+        FOVCircle.Visible = Settings.ShowFOV
+    end
+end
+
+local function GetClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = Settings.FOVSize
+    local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            if Settings.TeamCheck and player.Team == LocalPlayer.Team then
+                continue
+            end
+            
+            local character = player.Character
+            local head = character:FindFirstChild("Head")
+            
+            if head and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0 then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                
+                if onScreen then
+                    local targetPos = Vector2.new(screenPos.X, screenPos.Y)
+                    local distance = (screenCenter - targetPos).Magnitude
+                    
+                    if distance < shortestDistance then
+                        closestPlayer = player
+                        shortestDistance = distance
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+task.spawn(function()
+    RunService.RenderStepped:Connect(function()
+        UpdateFOVCircle()
+    end)
+end)
+
+--[[ GUI CREATION ]]--
+local function CreateGUI()
+    if game.CoreGui:FindFirstChild("UniversalFarmGUI") then
+        game.CoreGui:FindFirstChild("UniversalFarmGUI"):Destroy()
+    end
+    
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "UniversalFarmGUI"
+    ScreenGui.Parent = game.CoreGui
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.ResetOnSpawn = false
+    
+    -- RGB Animation
+    local hue = 0
+    local function GetRGBColor()
+        hue = hue + 0.0005
+        if hue > 1 then hue = 0 end
+        return Color3.fromHSV(hue, 0.8, 1)
+    end
+    
+    -- Main Frame
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = "MainFrame"
+    MainFrame.Size = UDim2.new(0, 640, 0, 400)
+    MainFrame.Position = UDim2.new(0.5, -320, 0.5, -200)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+    
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 12)
+    MainCorner.Parent = MainFrame
+    
+    local MainStroke = Instance.new("UIStroke")
+    MainStroke.Color = Color3.fromRGB(255, 255, 255)
+    MainStroke.Thickness = 2
+    MainStroke.Parent = MainFrame
+    
+    -- RGB animation for border
+    task.spawn(function()
+        while MainFrame and MainFrame.Parent do
+            MainStroke.Color = GetRGBColor()
+            wait()
+        end
+    end)
+    
+    -- Title Bar
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Name = "TitleBar"
+    TitleBar.Size = UDim2.new(1, 0, 0, 50)
+    TitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    TitleBar.BorderSizePixel = 0
+    TitleBar.Parent = MainFrame
+    
+    local TitleCorner = Instance.new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 12)
+    TitleCorner.Parent = TitleBar
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(0.6, 0, 1, 0)
+    Title.Position = UDim2.new(0, 15, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Font = Enum.Font.GothamBold
+    Title.Text = "💰 UNIVERSAL FARM"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextSize = 16
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Parent = TitleBar
+    
+    -- Close Button
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+    CloseBtn.Position = UDim2.new(1, -35, 0, 11)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    CloseBtn.BorderSizePixel = 0
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CloseBtn.TextSize = 14
+    CloseBtn.Parent = TitleBar
+    
+    local CloseBtnCorner = Instance.new("UICorner")
+    CloseBtnCorner.CornerRadius = UDim.new(0, 6)
+    CloseBtnCorner.Parent = CloseBtn
+    
+    CloseBtn.MouseButton1Click:Connect(function()
+        ScreenGui:Destroy()
+    end)
+    
+    -- Tabs Container
+    local TabContainer = Instance.new("Frame")
+    TabContainer.Size = UDim2.new(1, 0, 0, 40)
+    TabContainer.Position = UDim2.new(0, 0, 0, 50)
+    TabContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    TabContainer.BorderSizePixel = 0
+    TabContainer.Parent = MainFrame
+    
+    -- Content Container
+    local ContentContainer = Instance.new("Frame")
+    ContentContainer.Size = UDim2.new(1, 0, 1, -90)
+    ContentContainer.Position = UDim2.new(0, 0, 0, 90)
+    ContentContainer.BackgroundTransparency = 1
+    ContentContainer.BorderSizePixel = 0
+    ContentContainer.Parent = MainFrame
+    
+    local pages = {}
+    
+    -- Helper Functions
+    local function CreateButton(parent, text, position, size, color, callback)
+        local button = Instance.new("TextButton")
+        button.Size = size
+        button.Position = position
+        button.BackgroundColor3 = color
+        button.BorderSizePixel = 0
+        button.Font = Enum.Font.GothamBold
+        button.Text = text
+        button.TextColor3 = Color3.fromRGB(255, 255, 255)
+        button.TextSize = 12
+        button.AutoButtonColor = false
+        button.Parent = parent
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = button
+        
+        if callback then
+            button.MouseButton1Click:Connect(callback)
+        end
+        
+        return button
+    end
+    
+    local function CreateToggle(parent, text, position, settingKey)
+        local buttonColor = Color3.fromRGB(60, 60, 70)
+        
+        local button = CreateButton(
+            parent, 
+            text .. ": " .. (Settings[settingKey] and "ON" or "OFF"), 
+            position, 
+            UDim2.new(0, 300, 0, 32), 
+            buttonColor,
+            nil
+        )
+        
+        button.TextSize = 11
+        
+        button.MouseButton1Click:Connect(function()
+            Settings[settingKey] = not Settings[settingKey]
+            local newState = Settings[settingKey]
+            button.Text = text .. ": " .. (newState and "ON" or "OFF")
+            
+            -- Update FOV circle visibility
+            if settingKey == "ShowFOV" then
+                FOVCircle.Visible = newState
+            end
+        end)
+        
+        return button
+    end
+    
+    -- HOME PAGE
+    local HomePage = Instance.new("ScrollingFrame")
+    HomePage.Size = UDim2.new(1, 0, 1, 0)
+    HomePage.BackgroundTransparency = 1
+    HomePage.BorderSizePixel = 0
+    HomePage.ScrollBarThickness = 4
+    HomePage.Visible = true
+    HomePage.Parent = ContentContainer
+    pages["Home"] = HomePage
+    
+    local HomeLayout = Instance.new("UIListLayout")
+    HomeLayout.Padding = UDim.new(0, 5)
+    HomeLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    HomeLayout.Parent = HomePage
+    
+    -- Status Display
+    local StatusFrame = Instance.new("Frame")
+    StatusFrame.Size = UDim2.new(0, 600, 0, 100)
+    StatusFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    StatusFrame.BorderSizePixel = 0
+    StatusFrame.Parent = HomePage
+    
+    local StatusCorner = Instance.new("UICorner")
+    StatusCorner.CornerRadius = UDim.new(0, 8)
+    StatusCorner.Parent = StatusFrame
+    
+    local StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Size = UDim2.new(1, -20, 1, -20)
+    StatusLabel.Position = UDim2.new(0, 10, 0, 10)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.Font = Enum.Font.Gotham
+    StatusLabel.Text = "Status: Idle"
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    StatusLabel.TextSize = 13
+    StatusLabel.TextWrapped = true
+    StatusLabel.TextYAlignment = Enum.TextYAlignment.Top
+    StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    StatusLabel.Parent = StatusFrame
+    
+    -- Update status display
+    task.spawn(function()
+        while wait(0.3) do
+            if StatusLabel and StatusLabel.Parent then
+                local text = string.format(
+                    "Action: %s\n\nStats:\n  Robberies: %d\n  Arrests: %d\n  Money: $%d\n\nFeatures:\n  Auto Farm: %s\n  Silent Aim: %s",
+                    Status.CurrentAction,
+                    Status.RobberiesCompleted,
+                    Status.ArrestsMade or 0,
+                    Status.MoneyFarmed,
+                    Settings.AutoFarm and "✓ ON" or "✗ OFF",
+                    Settings.SilentAim and "✓ ON" or "✗ OFF"
+                )
+                StatusLabel.Text = text
+            else
+                break
+            end
+        end
+    end)
+    
+    CreateButton(HomePage, "🚨 Escape Jail", UDim2.new(0, 20, 0, 120), UDim2.new(0, 180, 0, 35), Color3.fromRGB(230, 126, 34), function()
+        Escape()
+    end)
+    
+    CreateButton(HomePage, "💀 Respawn", UDim2.new(0, 220, 0, 120), UDim2.new(0, 180, 0, 35), Color3.fromRGB(192, 57, 43), function()
+        if Character and Character:FindFirstChild("Humanoid") then
+            Character.Humanoid.Health = 0
+        end
+        Notify("💀 Respawning", "Resetting")
+    end)
+    
+    -- FARMING PAGE
+    local FarmPage = Instance.new("ScrollingFrame")
+    FarmPage.Size = UDim2.new(1, 0, 1, 0)
+    FarmPage.BackgroundTransparency = 1
+    FarmPage.BorderSizePixel = 0
+    FarmPage.ScrollBarThickness = 4
+    FarmPage.Visible = false
+    FarmPage.Parent = ContentContainer
+    pages["Farm"] = FarmPage
+    
+    local FarmLayout = Instance.new("UIListLayout")
+    FarmLayout.Padding = UDim.new(0, 5)
+    FarmLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    FarmLayout.Parent = FarmPage
+    
+    CreateToggle(FarmPage, "Auto Farm", UDim2.new(0, 20, 0, 10), "AutoFarm")
+    CreateToggle(FarmPage, "Auto Rob Bank", UDim2.new(0, 20, 0, 50), "AutoRob")
+    CreateToggle(FarmPage, "Auto Escape", UDim2.new(0, 20, 0, 90), "AutoEscape")
+    CreateToggle(FarmPage, "Auto Collect Items", UDim2.new(0, 20, 0, 130), "AutoCollect")
+    
+    -- COMBAT PAGE
+    local CombatPage = Instance.new("ScrollingFrame")
+    CombatPage.Size = UDim2.new(1, 0, 1, 0)
+    CombatPage.BackgroundTransparency = 1
+    CombatPage.BorderSizePixel = 0
+    CombatPage.ScrollBarThickness = 4
+    CombatPage.Visible = false
+    CombatPage.Parent = ContentContainer
+    pages["Combat"] = CombatPage
+    
+    local CombatLayout = Instance.new("UIListLayout")
+    CombatLayout.Padding = UDim.new(0, 5)
+    CombatLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    CombatLayout.Parent = CombatPage
+    
+    CreateToggle(CombatPage, "Silent Aim", UDim2.new(0, 20, 0, 10), "SilentAim")
+    CreateToggle(CombatPage, "Show FOV Circle", UDim2.new(0, 20, 0, 50), "ShowFOV")
+    CreateToggle(CombatPage, "Wall Check", UDim2.new(0, 20, 0, 90), "WallCheck")
+    CreateToggle(CombatPage, "Team Check", UDim2.new(0, 20, 0, 130), "TeamCheck")
+    CreateToggle(CombatPage, "No Recoil", UDim2.new(0, 20, 0, 170), "NoRecoil")
+    CreateToggle(CombatPage, "No Spread", UDim2.new(0, 20, 0, 210), "NoSpread")
+    
+    -- PLAYER PAGE
+    local PlayerPage = Instance.new("ScrollingFrame")
+    PlayerPage.Size = UDim2.new(1, 0, 1, 0)
+    PlayerPage.BackgroundTransparency = 1
+    PlayerPage.BorderSizePixel = 0
+    PlayerPage.ScrollBarThickness = 4
+    PlayerPage.Visible = false
+    PlayerPage.Parent = ContentContainer
+    pages["Player"] = PlayerPage
+    
+    local PlayerLayout = Instance.new("UIListLayout")
+    PlayerLayout.Padding = UDim.new(0, 5)
+    PlayerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    PlayerLayout.Parent = PlayerPage
+    
+    CreateToggle(PlayerPage, "Infinite Jump", UDim2.new(0, 20, 0, 10), "InfJump")
+    CreateToggle(PlayerPage, "No Fall Damage", UDim2.new(0, 20, 0, 50), "NoFall")
+    CreateToggle(PlayerPage, "No Ragdoll", UDim2.new(0, 20, 0, 90), "NoRagdoll")
+    CreateToggle(PlayerPage, "Anti AFK", UDim2.new(0, 20, 0, 130), "AntiAFK")
+    
+    -- Create Tabs
+    local tabs = {"Home", "Farm", "Combat", "Player"}
+    local currentTab = "Home"
+    
+    for i, tabName in ipairs(tabs) do
+        local tabButton = Instance.new("TextButton")
+        tabButton.Size = UDim2.new(0.24, 0, 0, 35)
+        tabButton.Position = UDim2.new((i-1) * 0.25, 2, 0, 2)
+        tabButton.BackgroundColor3 = tabName == currentTab and Color3.fromRGB(50, 50, 60) or Color3.fromRGB(40, 40, 45)
+        tabButton.BorderSizePixel = 0
+        tabButton.Font = Enum.Font.GothamBold
+        tabButton.Text = tabName
+        tabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        tabButton.TextSize = 12
+        tabButton.AutoButtonColor = false
+        tabButton.Parent = TabContainer
+        
+        local tabCorner = Instance.new("UICorner")
+        tabCorner.CornerRadius = UDim.new(0, 6)
+        tabCorner.Parent = tabButton
+        
+        tabButton.MouseButton1Click:Connect(function()
+            for _, page in pairs(pages) do
+                page.Visible = false
+            end
+            
+            pages[tabName].Visible = true
+            currentTab = tabName
+            
+            for _, child in pairs(TabContainer:GetChildren()) do
+                if child:IsA("TextButton") then
+                    if child.Text == tabName then
+                        child.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+                    else
+                        child.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Update canvas sizes
+    task.spawn(function()
+        while wait(0.5) do
+            HomePage.CanvasSize = UDim2.new(0, 0, 0, HomeLayout.AbsoluteContentSize.Y + 10)
+            FarmPage.CanvasSize = UDim2.new(0, 0, 0, FarmLayout.AbsoluteContentSize.Y + 10)
+            CombatPage.CanvasSize = UDim2.new(0, 0, 0, CombatLayout.AbsoluteContentSize.Y + 10)
+            PlayerPage.CanvasSize = UDim2.new(0, 0, 0, PlayerLayout.AbsoluteContentSize.Y + 10)
+        end
+    end)
+    
+    return ScreenGui
+end
+
+--[[ AUTO FARM LOOP ]]--
+task.spawn(function()
+    while wait(5) do
+        if Settings.AutoFarm then
+            pcall(function()
+                if Settings.FarmMode == "Bank" and Settings.AutoRob then
+                    RobTheBank()
+                end
+            end)
+        end
+    end
+end)
+
+--[[ AUTO ESCAPE ]]--
+task.spawn(function()
+    while wait(5) do
+        if Settings.AutoEscape and IsInJail() then
+            Escape()
+        end
+    end
+end)
+
+--[[ INFINITE JUMP ]]--
+UserInputService.JumpRequest:Connect(function()
+    if Settings.InfJump and Character and Character:FindFirstChild("Humanoid") then
+        Character.Humanoid:ChangeState("Jumping")
+    end
+end)
+
+--[[ NO FALL / NO RAGDOLL ]]--
+LocalPlayer.CharacterAdded:Connect(function()
+    local hrp = LocalPlayer.Character:WaitForChild("HumanoidRootPart")
+    if hrp then
+        if Settings.NoFall then 
+            hrp:AddTag("NoFallDamage")
+        end
+        if Settings.NoRagdoll then
+            hrp:AddTag("NoRagdoll")
+        end
+    end
+end)
+
+--[[ INITIALIZE ]]--
+CreateGUI()
+Notify("✅ Loaded", "Universal Farm Script Active")
+print("Universal Farm Script Loaded - All Features Active!")
