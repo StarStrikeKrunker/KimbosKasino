@@ -1,0 +1,648 @@
+-- Universal Jailbreak Farm Script
+-- Professional Edition with Key System & Animated Intro
+-- Version: 2.0.0
+
+--[[ SERVICES ]]--
+local Services = {
+    Players = game:GetService("Players"),
+    TweenService = game:GetService("TweenService"),
+    UserInputService = game:GetService("UserInputService"),
+    RunService = game:GetService("RunService"),
+    Workspace = game:GetService("Workspace"),
+    VirtualUser = game:GetService("VirtualUser"),
+    StarterGui = game:GetService("StarterGui"),
+}
+
+local Player = Services.Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+Player.CharacterAdded:Connect(function(char)
+    Character = char
+    wait(0.1)
+    HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
+end)
+
+--[[ CONFIGURATION ]]--
+local Config = {
+    ValidKey = "UNIVERSAL2024",
+    MaxKeyLength = 50,
+    ParticleCount = 60,
+    ParticleSpeed = 60,
+}
+
+--[[ COLOR SCHEME ]]--
+local Colors = {
+    Background = Color3.fromRGB(18, 18, 22),
+    Surface = Color3.fromRGB(25, 25, 30),
+    Primary = Color3.fromRGB(45, 45, 50),
+    Border = Color3.fromRGB(40, 40, 45),
+    TextPrimary = Color3.fromRGB(220, 220, 225),
+    TextSecondary = Color3.fromRGB(140, 140, 150),
+    Success = Color3.fromRGB(25, 135, 84),
+    Error = Color3.fromRGB(180, 50, 50),
+    Warning = Color3.fromRGB(200, 120, 30),
+    Discord = Color3.fromRGB(60, 70, 180),
+    GetKey = Color3.fromRGB(40, 140, 100),
+    HoverPrimary = Color3.fromRGB(55, 55, 60),
+    NeonWhite = Color3.fromRGB(255, 255, 255),
+    NeonGlow = Color3.fromRGB(240, 248, 255)
+}
+
+--[[ SETTINGS ]]--
+local Settings = {
+    AutoFarm = false,
+    FarmMode = "Bank",
+    AutoCollect = false,
+    AutoEscape = false,
+    AutoRob = false,
+    AutoArrest = false,
+    SilentAim = false,
+    FOVSize = 100,
+    ShowFOV = false,
+    WallCheck = true,
+    TeamCheck = true,
+    NoRecoil = false,
+    NoSpread = false,
+    VehicleSpeed = 100,
+    InfNitro = false,
+    AutoFlip = false,
+    WalkSpeed = 16,
+    JumpPower = 50,
+    InfJump = false,
+    NoFall = false,
+    NoRagdoll = false,
+    AntiAFK = false,
+    PlayerESP = false,
+}
+
+--[[ STATUS ]]--
+local Status = {
+    CurrentAction = "Idle",
+    RobberiesCompleted = 0,
+    ArrestsMade = 0,
+    MoneyFarmed = 0,
+}
+
+local State = {
+    IsLoading = false,
+    Particles = {},
+    Animations = {},
+    IsDestroyed = false,
+    MousePosition = {X = 0, Y = 0},
+    KeyValidated = false,
+}
+
+local UI = {}
+
+--[[ UTILITY FUNCTIONS ]]--
+local function Notify(title, text)
+    pcall(function()
+        Services.StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = 3,
+        })
+    end)
+end
+
+--[[ ANIMATED INTRO ]]--
+local function ShowIntro()
+    local IntroGui = Instance.new("ScreenGui")
+    IntroGui.Name = "UniversalFarmIntro"
+    IntroGui.Parent = PlayerGui
+    IntroGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    IntroGui.ResetOnSpawn = false
+    IntroGui.IgnoreGuiInset = true
+    
+    local IntroFrame = Instance.new("Frame")
+    IntroFrame.Size = UDim2.new(1, 0, 1, 0)
+    IntroFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    IntroFrame.BorderSizePixel = 0
+    IntroFrame.BackgroundTransparency = 0
+    IntroFrame.ZIndex = 1000
+    IntroFrame.Parent = IntroGui
+    
+    -- Script Icon
+    local Icon = Instance.new("TextLabel")
+    Icon.Size = UDim2.new(0, 100, 0, 100)
+    Icon.Position = UDim2.new(0.5, -50, 0.35, -50)
+    Icon.BackgroundTransparency = 1
+    Icon.Font = Enum.Font.GothamBold
+    Icon.Text = "💰"
+    Icon.TextSize = 72
+    Icon.TextTransparency = 1
+    Icon.ZIndex = 1001
+    Icon.Parent = IntroFrame
+    
+    -- Script Name
+    local ScriptName = Instance.new("TextLabel")
+    ScriptName.Size = UDim2.new(0, 600, 0, 80)
+    ScriptName.Position = UDim2.new(0.5, -300, 0.5, -40)
+    ScriptName.BackgroundTransparency = 1
+    ScriptName.Font = Enum.Font.GothamBold
+    ScriptName.Text = "UNIVERSAL FARM"
+    ScriptName.TextColor3 = Colors.NeonWhite
+    ScriptName.TextSize = 48
+    ScriptName.TextTransparency = 1
+    ScriptName.ZIndex = 1001
+    ScriptName.Parent = IntroFrame
+    
+    local NameStroke = Instance.new("UIStroke")
+    NameStroke.Color = Colors.NeonWhite
+    NameStroke.Thickness = 3
+    NameStroke.Transparency = 1
+    NameStroke.Parent = ScriptName
+    
+    -- Subtitle
+    local Subtitle = Instance.new("TextLabel")
+    Subtitle.Size = UDim2.new(0, 400, 0, 40)
+    Subtitle.Position = UDim2.new(0.5, -200, 0.6, 0)
+    Subtitle.BackgroundTransparency = 1
+    Subtitle.Font = Enum.Font.Gotham
+    Subtitle.Text = "Professional Edition - v2.0"
+    Subtitle.TextColor3 = Colors.TextSecondary
+    Subtitle.TextSize = 20
+    Subtitle.TextTransparency = 1
+    Subtitle.ZIndex = 1001
+    Subtitle.Parent = IntroFrame
+    
+    -- Author
+    local Author = Instance.new("TextLabel")
+    Author.Size = UDim2.new(0, 300, 0, 30)
+    Author.Position = UDim2.new(0.5, -150, 0.67, 0)
+    Author.BackgroundTransparency = 1
+    Author.Font = Enum.Font.GothamBold
+    Author.Text = "Jailbreak Edition"
+    Author.TextColor3 = Colors.Success
+    Author.TextSize = 18
+    Author.TextTransparency = 1
+    Author.ZIndex = 1001
+    Author.Parent = IntroFrame
+    
+    -- RGB Animation for text
+    local hue = 0
+    task.spawn(function()
+        while NameStroke and NameStroke.Parent do
+            hue = hue + 0.01
+            if hue > 1 then hue = 0 end
+            NameStroke.Color = Color3.fromHSV(hue, 0.8, 1)
+            wait()
+        end
+    end)
+    
+    -- Animations
+    task.spawn(function()
+        wait(0.2)
+        
+        -- Fade in icon
+        Services.TweenService:Create(Icon, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+            {TextTransparency = 0}):Play()
+        wait(0.8)
+        
+        -- Fade in script name
+        Services.TweenService:Create(ScriptName, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+            {TextTransparency = 0}):Play()
+        Services.TweenService:Create(NameStroke, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+            {Transparency = 0}):Play()
+        wait(0.6)
+        
+        -- Fade in subtitle
+        Services.TweenService:Create(Subtitle, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+            {TextTransparency = 0}):Play()
+        wait(0.5)
+        
+        -- Fade in author
+        Services.TweenService:Create(Author, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+            {TextTransparency = 0}):Play()
+        wait(1.5)
+        
+        -- Fade out everything
+        Services.TweenService:Create(Icon, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), 
+            {TextTransparency = 1}):Play()
+        Services.TweenService:Create(ScriptName, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), 
+            {TextTransparency = 1}):Play()
+        Services.TweenService:Create(NameStroke, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), 
+            {Transparency = 1}):Play()
+        Services.TweenService:Create(Subtitle, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), 
+            {TextTransparency = 1}):Play()
+        Services.TweenService:Create(Author, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), 
+            {TextTransparency = 1}):Play()
+        Services.TweenService:Create(IntroFrame, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In), 
+            {BackgroundTransparency = 1}):Play()
+        wait(0.8)
+        
+        IntroGui:Destroy()
+    end)
+end
+
+--[[ PARTICLE SYSTEM ]]--
+local function CreateParticle(container)
+    if not container or not container.Parent or State.IsDestroyed then return end
+    
+    local size = math.random(8, 24)
+    local particle = Instance.new("Frame")
+    particle.Size = UDim2.new(0, size, 0, size)
+    particle.Position = UDim2.new(math.random() * 1.4 - 0.2, 0, 1.2, 0)
+    particle.BackgroundColor3 = Colors.NeonWhite
+    particle.BackgroundTransparency = math.random(60, 85) / 100
+    particle.BorderSizePixel = 0
+    particle.ZIndex = 106
+    particle.Parent = container
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = particle
+    
+    local gradient = Instance.new("UIGradient")
+    local bubbleColors = {
+        Color3.fromRGB(200, 230, 255),
+        Color3.fromRGB(180, 220, 255),
+        Color3.fromRGB(220, 240, 255),
+    }
+    gradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, bubbleColors[math.random(#bubbleColors)]),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(1, bubbleColors[math.random(#bubbleColors)])
+    }
+    gradient.Rotation = math.random(0, 360)
+    gradient.Parent = particle
+    
+    local particleData = {
+        frame = particle,
+        vx = (math.random() - 0.5) * 0.004,
+        vy = -math.random(20, 50) / 10000,
+        created = tick(),
+        rotation = 0,
+        rotationSpeed = (math.random() - 0.5) * 2,
+        pulsePhase = math.random() * math.pi * 2,
+        originalSize = size,
+        lifetime = math.random(30, 60),
+    }
+    
+    table.insert(State.Particles, particleData)
+    return particle
+end
+
+local function UpdateParticles()
+    for i = #State.Particles, 1, -1 do
+        local p = State.Particles[i]
+        
+        if not p or not p.frame or not p.frame.Parent then
+            table.remove(State.Particles, i)
+        else
+            local currentPos = p.frame.Position
+            local age = tick() - p.created
+            
+            if currentPos.Y.Scale < -0.3 or age > p.lifetime then
+                p.frame:Destroy()
+                table.remove(State.Particles, i)
+            else
+                local newX = currentPos.X.Scale + p.vx
+                local newY = currentPos.Y.Scale + p.vy
+                
+                if newX <= -0.2 then newX = 1.2
+                elseif newX >= 1.2 then newX = -0.2 end
+                
+                p.rotation = p.rotation + p.rotationSpeed
+                p.frame.Rotation = p.rotation
+                
+                local breathe = math.sin(tick() * 2.5 + p.pulsePhase) * 0.1 + 1
+                p.frame.Size = UDim2.new(0, p.originalSize * breathe, 0, p.originalSize * breathe)
+                
+                p.frame.Position = UDim2.new(newX, 0, newY, 0)
+            end
+        end
+    end
+end
+
+--[[ KEY SYSTEM GUI ]]--
+local function CreateKeySystem(onSuccess)
+    local KeyGui = Instance.new("ScreenGui")
+    KeyGui.Name = "KeySystemGUI"
+    KeyGui.ResetOnSpawn = false
+    KeyGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    KeyGui.IgnoreGuiInset = true
+    KeyGui.DisplayOrder = 100
+    KeyGui.Parent = PlayerGui
+    
+    local Backdrop = Instance.new("Frame")
+    Backdrop.Size = UDim2.new(1, 0, 1, 0)
+    Backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    Backdrop.BackgroundTransparency = 0.3
+    Backdrop.BorderSizePixel = 0
+    Backdrop.ZIndex = 100
+    Backdrop.Parent = KeyGui
+    
+    local ParticleContainer = Instance.new("Frame")
+    ParticleContainer.Size = UDim2.new(1, 0, 1, 0)
+    ParticleContainer.BackgroundTransparency = 1
+    ParticleContainer.ZIndex = 105
+    ParticleContainer.Parent = Backdrop
+    
+    local Container = Instance.new("Frame")
+    Container.Size = UDim2.new(0, 420, 0, 550)
+    Container.Position = UDim2.new(0.5, -210, 0.5, -275)
+    Container.BackgroundColor3 = Colors.Background
+    Container.BorderSizePixel = 0
+    Container.ZIndex = 110
+    Container.Parent = KeyGui
+    
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 20)
+    MainCorner.Parent = Container
+    
+    local MainStroke = Instance.new("UIStroke")
+    MainStroke.Color = Colors.NeonWhite
+    MainStroke.Thickness = 2
+    MainStroke.Transparency = 0.3
+    MainStroke.Parent = Container
+    
+    -- RGB Border Animation
+    local hue = 0
+    task.spawn(function()
+        while Container and Container.Parent do
+            hue = hue + 0.001
+            if hue > 1 then hue = 0 end
+            MainStroke.Color = Color3.fromHSV(hue, 0.8, 1)
+            wait()
+        end
+    end)
+    
+    -- Header Icon
+    local IconContainer = Instance.new("Frame")
+    IconContainer.Size = UDim2.new(0, 56, 0, 56)
+    IconContainer.Position = UDim2.new(0.5, -28, 0, 40)
+    IconContainer.BackgroundColor3 = Colors.Primary
+    IconContainer.BorderSizePixel = 0
+    IconContainer.ZIndex = 112
+    IconContainer.Parent = Container
+    
+    local IconCorner = Instance.new("UICorner")
+    IconCorner.CornerRadius = UDim.new(0, 14)
+    IconCorner.Parent = IconContainer
+    
+    local Icon = Instance.new("TextLabel")
+    Icon.Size = UDim2.new(1, 0, 1, 0)
+    Icon.BackgroundTransparency = 1
+    Icon.Font = Enum.Font.GothamBold
+    Icon.Text = "🔐"
+    Icon.TextSize = 36
+    Icon.TextColor3 = Colors.NeonWhite
+    Icon.ZIndex = 113
+    Icon.Parent = IconContainer
+    
+    -- Title
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -40, 0, 32)
+    Title.Position = UDim2.new(0, 20, 0, 120)
+    Title.BackgroundTransparency = 1
+    Title.Font = Enum.Font.GothamBold
+    Title.Text = "Access Key Required"
+    Title.TextColor3 = Colors.TextPrimary
+    Title.TextSize = 24
+    Title.TextXAlignment = Enum.TextXAlignment.Center
+    Title.ZIndex = 111
+    Title.Parent = Container
+    
+    -- Subtitle
+    local Subtitle = Instance.new("TextLabel")
+    Subtitle.Size = UDim2.new(1, -40, 0, 40)
+    Subtitle.Position = UDim2.new(0, 20, 0, 160)
+    Subtitle.BackgroundTransparency = 1
+    Subtitle.Font = Enum.Font.Gotham
+    Subtitle.Text = "Enter your access key to continue"
+    Subtitle.TextColor3 = Colors.TextSecondary
+    Subtitle.TextSize = 16
+    Subtitle.TextWrapped = true
+    Subtitle.ZIndex = 111
+    Subtitle.Parent = Container
+    
+    -- Input Box
+    local InputContainer = Instance.new("Frame")
+    InputContainer.Size = UDim2.new(1, -40, 0, 52)
+    InputContainer.Position = UDim2.new(0, 20, 0, 220)
+    InputContainer.BackgroundColor3 = Colors.Surface
+    InputContainer.BorderSizePixel = 0
+    InputContainer.ZIndex = 111
+    InputContainer.Parent = Container
+    
+    local InputCorner = Instance.new("UICorner")
+    InputCorner.CornerRadius = UDim.new(0, 12)
+    InputCorner.Parent = InputContainer
+    
+    local InputStroke = Instance.new("UIStroke")
+    InputStroke.Color = Colors.Border
+    InputStroke.Thickness = 1
+    InputStroke.Transparency = 0.3
+    InputStroke.Parent = InputContainer
+    
+    local TextInput = Instance.new("TextBox")
+    TextInput.Size = UDim2.new(1, -24, 1, 0)
+    TextInput.Position = UDim2.new(0, 12, 0, 0)
+    TextInput.BackgroundTransparency = 1
+    TextInput.Text = ""
+    TextInput.PlaceholderText = "Enter key here..."
+    TextInput.TextColor3 = Colors.TextPrimary
+    TextInput.PlaceholderColor3 = Colors.TextSecondary
+    TextInput.TextSize = 16
+    TextInput.Font = Enum.Font.Gotham
+    TextInput.TextXAlignment = Enum.TextXAlignment.Left
+    TextInput.ClearTextOnFocus = false
+    TextInput.ZIndex = 112
+    TextInput.Parent = InputContainer
+    
+    -- Status Label
+    local StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Size = UDim2.new(1, -40, 0, 40)
+    StatusLabel.Position = UDim2.new(0, 20, 0, 285)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.Font = Enum.Font.Gotham
+    StatusLabel.Text = ""
+    StatusLabel.TextColor3 = Colors.Error
+    StatusLabel.TextSize = 14
+    StatusLabel.TextWrapped = true
+    StatusLabel.ZIndex = 111
+    StatusLabel.Parent = Container
+    
+    -- Submit Button
+    local SubmitButton = Instance.new("TextButton")
+    SubmitButton.Size = UDim2.new(1, -40, 0, 48)
+    SubmitButton.Position = UDim2.new(0, 20, 0, 340)
+    SubmitButton.BackgroundColor3 = Colors.Primary
+    SubmitButton.BorderSizePixel = 0
+    SubmitButton.Font = Enum.Font.GothamMedium
+    SubmitButton.Text = "Verify Access Key"
+    SubmitButton.TextColor3 = Colors.TextPrimary
+    SubmitButton.TextSize = 16
+    SubmitButton.AutoButtonColor = false
+    SubmitButton.ZIndex = 111
+    SubmitButton.Parent = Container
+    
+    local SubmitCorner = Instance.new("UICorner")
+    SubmitCorner.CornerRadius = UDim.new(0, 12)
+    SubmitCorner.Parent = SubmitButton
+    
+    -- Get Key Button
+    local GetKeyButton = Instance.new("TextButton")
+    GetKeyButton.Size = UDim2.new(0.48, 0, 0, 48)
+    GetKeyButton.Position = UDim2.new(0, 20, 0, 405)
+    GetKeyButton.BackgroundColor3 = Colors.GetKey
+    GetKeyButton.BorderSizePixel = 0
+    GetKeyButton.Font = Enum.Font.GothamMedium
+    GetKeyButton.Text = "Get Key"
+    GetKeyButton.TextColor3 = Colors.TextPrimary
+    GetKeyButton.TextSize = 14
+    GetKeyButton.AutoButtonColor = false
+    GetKeyButton.ZIndex = 111
+    GetKeyButton.Parent = Container
+    
+    local GetKeyCorner = Instance.new("UICorner")
+    GetKeyCorner.CornerRadius = UDim.new(0, 10)
+    GetKeyCorner.Parent = GetKeyButton
+    
+    -- Discord Button
+    local DiscordButton = Instance.new("TextButton")
+    DiscordButton.Size = UDim2.new(0.48, 0, 0, 48)
+    DiscordButton.Position = UDim2.new(0.52, 0, 0, 405)
+    DiscordButton.BackgroundColor3 = Colors.Discord
+    DiscordButton.BorderSizePixel = 0
+    DiscordButton.Font = Enum.Font.GothamMedium
+    DiscordButton.Text = "Discord"
+    DiscordButton.TextColor3 = Colors.TextPrimary
+    DiscordButton.TextSize = 14
+    DiscordButton.AutoButtonColor = false
+    DiscordButton.ZIndex = 111
+    DiscordButton.Parent = Container
+    
+    local DiscordCorner = Instance.new("UICorner")
+    DiscordCorner.CornerRadius = UDim.new(0, 10)
+    DiscordCorner.Parent = DiscordButton
+    
+    -- Footer
+    local Footer = Instance.new("TextLabel")
+    Footer.Size = UDim2.new(1, 0, 0, 30)
+    Footer.Position = UDim2.new(0, 0, 1, -40)
+    Footer.BackgroundTransparency = 1
+    Footer.Font = Enum.Font.Gotham
+    Footer.Text = "Universal Farm v2.0 - Professional Edition"
+    Footer.TextColor3 = Colors.TextSecondary
+    Footer.TextSize = 12
+    Footer.ZIndex = 111
+    Footer.Parent = Container
+    
+    -- Button Click Events
+    SubmitButton.MouseButton1Click:Connect(function()
+        local key = TextInput.Text
+        if key == "" then
+            StatusLabel.TextColor3 = Colors.Error
+            StatusLabel.Text = "Please enter an access key"
+            return
+        end
+        
+        State.IsLoading = true
+        SubmitButton.Text = "Validating..."
+        StatusLabel.TextColor3 = Colors.Warning
+        StatusLabel.Text = "Checking key..."
+        
+        task.spawn(function()
+            wait(1.5)
+            
+            if key == Config.ValidKey then
+                StatusLabel.TextColor3 = Colors.Success
+                StatusLabel.Text = "✓ Key accepted! Loading script..."
+                State.KeyValidated = true
+                
+                wait(1)
+                KeyGui:Destroy()
+                
+                if onSuccess then
+                    onSuccess()
+                end
+            else
+                StatusLabel.TextColor3 = Colors.Error
+                StatusLabel.Text = "✗ Invalid key! Please try again."
+                SubmitButton.Text = "Verify Access Key"
+                TextInput.Text = ""
+                State.IsLoading = false
+            end
+        end)
+    end)
+    
+    GetKeyButton.MouseButton1Click:Connect(function()
+        StatusLabel.TextColor3 = Colors.Success
+        StatusLabel.Text = "Key copied: " .. Config.ValidKey
+        if setclipboard then
+            setclipboard(Config.ValidKey)
+        end
+    end)
+    
+    DiscordButton.MouseButton1Click:Connect(function()
+        StatusLabel.TextColor3 = Colors.Success
+        StatusLabel.Text = "Discord link copied to clipboard!"
+        if setclipboard then
+            setclipboard("https://discord.gg/your-invite")
+        end
+    end)
+    
+    -- Particle System
+    task.spawn(function()
+        for i = 1, 20 do
+            CreateParticle(ParticleContainer)
+            wait(math.random(20, 100) / 1000)
+        end
+        
+        while KeyGui.Parent do
+            if #State.Particles < Config.ParticleCount then
+                CreateParticle(ParticleContainer)
+            end
+            wait(math.random(400, 1200) / 1000)
+        end
+    end)
+    
+    task.spawn(function()
+        while KeyGui.Parent do
+            UpdateParticles()
+            wait(1/Config.ParticleSpeed)
+        end
+    end)
+    
+    -- Entrance Animation
+    Container.Size = UDim2.new(0, 0, 0, 0)
+    Container.BackgroundTransparency = 1
+    Backdrop.BackgroundTransparency = 1
+    
+    Services.TweenService:Create(Backdrop, TweenInfo.new(0.3, Enum.EasingStyle.Quad), 
+        {BackgroundTransparency = 0.3}):Play()
+    
+    wait(0.1)
+    
+    Services.TweenService:Create(Container, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), 
+        {Size = UDim2.new(0, 420, 0, 550), BackgroundTransparency = 0}):Play()
+    
+    wait(0.5)
+    TextInput:CaptureFocus()
+    
+    return KeyGui
+end
+
+--[[ MAIN SCRIPT - Will be shown after key validation ]]--
+local function LoadMainScript()
+    Notify("✅ Access Granted", "Loading Universal Farm...")
+    
+    -- Your main script code here
+    print("Universal Farm Script Loaded!")
+    print("All Features Active!")
+    
+    -- Add all your farming, combat, ESP features here
+    -- This is where the actual script functionality goes
+end
+
+--[[ INITIALIZATION ]]--
+ShowIntro()
+wait(5) -- Wait for intro to finish
+
+CreateKeySystem(function()
+    LoadMainScript()
+end)
