@@ -1,11 +1,9 @@
 -- Kimbo's Krackpipe - Jailbreak 2026
--- Version: 4.0.0 - "Welcome to Agartha"
+-- Version: 4.1.0 - "Welcome to Agartha"
 
 -- Services
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local VirtualUser = game:GetService("VirtualUser")
 local StarterGui = game:GetService("StarterGui")
@@ -18,22 +16,42 @@ local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
 LocalPlayer.CharacterAdded:Connect(function(char)
     Character = char
+    wait(0.1)
     HumanoidRootPart = char:WaitForChild("HumanoidRootPart")
 end)
 
--- Settings
+-- Settings (ALL OFF BY DEFAULT)
 local Settings = {
-    AutoRob = false,
-    AutoEscape = true,
-    AutoFarm = false,
+    AutoEscape = false,
     AutoArrest = false,
-    UseVehicles = true,
-    FlightHeight = 150,
-    FlightSpeed = 50,
-    AntiAFK = true,
+    AntiAFK = false,
+    
+    -- Aimbot
+    SilentAim = false,
+    Triggerbot = false,
+    ShowFOV = false,
+    FOVSize = 100,
+    WallCheck = true,
+    TeamCheck = true,
+    
+    -- Misc
+    VehicleSpeed = 100,
+    
+    -- Criminal ESP
+    CriminalESP = false,
+    CriminalNames = false,
+    CriminalBoxes = false,
+    CriminalDistance = false,
+    CriminalHealth = false,
+    
+    -- Police ESP
+    PoliceESP = false,
+    PoliceNames = false,
+    PoliceBoxes = false,
+    PoliceDistance = false,
+    PoliceHealth = false,
 }
 
-local CurrentVehicle = nil
 local ConfigFile = "KimbosKrackpipe_Config.json"
 
 -- Status tracking
@@ -42,16 +60,17 @@ local Status = {
     RobberiesCompleted = 0,
     ArrestsMade = 0,
     EscapesMade = 0,
-    LastUpdate = "Ready",
 }
 
--- Locations
-local Locations = {
-    Robberies = {},
-    Stores = {},
-    VehicleSpawns = {},
-    Prison = nil,
+-- ESP Storage
+local ESPObjects = {
+    Criminals = {},
+    Police = {},
 }
+
+-- Aimbot Storage
+local FOVCircle = nil
+local CurrentTarget = nil
 
 --[[ UTILITIES ]]--
 
@@ -65,11 +84,15 @@ local function Notify(title, text)
     end)
 end
 
+local function UpdateStatus(action)
+    Status.CurrentAction = action
+end
+
 local function SaveConfig()
     pcall(function()
         local json = HttpService:JSONEncode(Settings)
         writefile(ConfigFile, json)
-        Notify("💾 Config Saved", "Your degen settings are safe")
+        Notify("💾 Saved", "Config saved")
     end)
 end
 
@@ -83,7 +106,7 @@ local function LoadConfig()
                     Settings[key] = value
                 end
             end
-            Notify("📁 Config Loaded", "Back to your usual chaos")
+            Notify("📁 Loaded", "Settings restored")
         end)
         return true
     end
@@ -101,63 +124,13 @@ task.spawn(function()
     end)
 end)
 
---[[ LOCATION SCANNER ]]--
-
-local function ScanLocations()
-    Locations.Robberies = {}
-    Locations.Stores = {}
-    Locations.VehicleSpawns = {}
-    
-    local robberyPatterns = {"Bank", "Museum", "Jewelry", "Power", "Casino", "Cargo", "Tomb", "Train", "Nuclear", "Refinery", "Gallery", "Mansion", "Space", "Submarine", "Skyscraper"}
-    
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        local name = obj.Name
-        
-        for _, pattern in pairs(robberyPatterns) do
-            if name:match(pattern) and (obj:IsA("Model") or obj:IsA("Part")) then
-                table.insert(Locations.Robberies, obj)
-                break
-            end
-        end
-        
-        if name:match("Store") or name:match("Gas") or name:match("Donut") then
-            table.insert(Locations.Stores, obj)
-        end
-        
-        if name:match("VehicleSpawn") then
-            table.insert(Locations.VehicleSpawns, obj)
-        end
-        
-        if name:match("Prison") or name:match("Jail") then
-            Locations.Prison = obj
-        end
-    end
-end
-
 --[[ MOVEMENT ]]--
 
-local function FlyTo(position)
+local function TeleportTo(position)
     if not HumanoidRootPart then return end
     
-    local waypoints = {
-        Vector3.new(HumanoidRootPart.Position.X, Settings.FlightHeight, HumanoidRootPart.Position.Z),
-        Vector3.new(position.X, Settings.FlightHeight, position.Z),
-        position
-    }
-    
-    for _, waypoint in ipairs(waypoints) do
-        local distance = (waypoint - HumanoidRootPart.Position).Magnitude
-        local duration = distance / Settings.FlightSpeed
-        
-        local tween = TweenService:Create(
-            HumanoidRootPart,
-            TweenInfo.new(duration, Enum.EasingStyle.Linear),
-            {CFrame = CFrame.new(waypoint)}
-        )
-        
-        tween:Play()
-        tween.Completed:Wait()
-    end
+    HumanoidRootPart.CFrame = CFrame.new(position)
+    wait(0.1)
 end
 
 --[[ JAILBREAK FUNCTIONS ]]--
@@ -166,57 +139,23 @@ local function IsInJail()
     if LocalPlayer.Team and LocalPlayer.Team.Name == "Prisoner" then
         return true
     end
-    
-    if Locations.Prison and HumanoidRootPart then
-        local dist = (Locations.Prison.Position - HumanoidRootPart.Position).Magnitude
-        return dist < 300
-    end
-    
     return false
 end
 
 local function Escape()
     if not IsInJail() then return end
     
-    Status.CurrentAction = "Escaping Jail"
-    Notify("🚨 Prison Break", "Time to dip, they can't hold us")
+    UpdateStatus("Escaping jail")
+    Notify("🚨 Escaping", "Breaking out...")
     
-    local escapePos = HumanoidRootPart.Position + Vector3.new(500, 100, 500)
-    FlyTo(escapePos)
+    -- Teleport safely to ground level outside prison
+    local safePos = HumanoidRootPart.Position + Vector3.new(500, 0, 500)
+    TeleportTo(safePos)
     
     wait(2)
     Status.EscapesMade = Status.EscapesMade + 1
-    Status.CurrentAction = "Idle"
-    Notify("✅ Free", "Welcome back to the streets")
-end
-
-local function RobLocation(location)
-    if not location then return end
-    
-    local targetPos = nil
-    if location:IsA("Model") and location.PrimaryPart then
-        targetPos = location.PrimaryPart.Position
-    elseif location:IsA("Part") then
-        targetPos = location.Position
-    end
-    
-    if not targetPos then return end
-    
-    Status.CurrentAction = "Robbing: " .. location.Name
-    FlyTo(targetPos)
-    wait(1)
-    
-    -- Try to activate robbery
-    for _, obj in pairs(location:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
-            fireproximityprompt(obj)
-        elseif obj:IsA("ClickDetector") then
-            fireclickdetector(obj)
-        end
-    end
-    
-    Status.RobberiesCompleted = Status.RobberiesCompleted + 1
-    wait(0.5)
+    UpdateStatus("Idle")
+    Notify("✅ Escaped", "Freedom")
 end
 
 local function FindCriminals()
@@ -236,13 +175,12 @@ local function ArrestPlayer(criminal)
         return
     end
     
-    Status.CurrentAction = "Arresting: " .. criminal.Name
+    UpdateStatus("Arresting " .. criminal.Name)
     local crimPos = criminal.Character.HumanoidRootPart.Position
-    FlyTo(crimPos)
+    TeleportTo(crimPos)
     
     wait(0.5)
     
-    -- Try to arrest
     for _, tool in pairs(LocalPlayer.Backpack:GetChildren()) do
         if tool.Name:lower():match("cuff") or tool.Name:lower():match("arrest") then
             Character.Humanoid:EquipTool(tool)
@@ -251,126 +189,501 @@ local function ArrestPlayer(criminal)
     end
     
     Status.ArrestsMade = Status.ArrestsMade + 1
+    wait(1)
 end
+
+--[[ ESP SYSTEM ]]--
+
+local function ClearESP(player)
+    if ESPObjects.Criminals[player] then
+        for _, obj in pairs(ESPObjects.Criminals[player]) do
+            obj:Destroy()
+        end
+        ESPObjects.Criminals[player] = nil
+    end
+    
+    if ESPObjects.Police[player] then
+        for _, obj in pairs(ESPObjects.Police[player]) do
+            obj:Destroy()
+        end
+        ESPObjects.Police[player] = nil
+    end
+end
+
+local function CreateESP(player, isCriminal)
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    local storage = isCriminal and ESPObjects.Criminals or ESPObjects.Police
+    local settings = isCriminal and {
+        enabled = Settings.CriminalESP,
+        names = Settings.CriminalNames,
+        boxes = Settings.CriminalBoxes,
+        distance = Settings.CriminalDistance,
+        health = Settings.CriminalHealth,
+        color = Color3.fromRGB(255, 100, 100)
+    } or {
+        enabled = Settings.PoliceESP,
+        names = Settings.PoliceNames,
+        boxes = Settings.PoliceBoxes,
+        distance = Settings.PoliceDistance,
+        health = Settings.PoliceHealth,
+        color = Color3.fromRGB(100, 150, 255)
+    }
+    
+    if not settings.enabled then return end
+    
+    ClearESP(player)
+    
+    storage[player] = {}
+    
+    local hrp = player.Character.HumanoidRootPart
+    local humanoid = player.Character:FindFirstChild("Humanoid")
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP"
+    billboard.Parent = hrp
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(0, 200, 0, 100)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    table.insert(storage[player], billboard)
+    
+    if settings.names then
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Parent = billboard
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Size = UDim2.new(1, 0, 0, 20)
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.Text = player.Name
+        nameLabel.TextColor3 = settings.color
+        nameLabel.TextSize = 14
+        nameLabel.TextStrokeTransparency = 0.5
+    end
+    
+    if settings.distance then
+        local distLabel = Instance.new("TextLabel")
+        distLabel.Parent = billboard
+        distLabel.BackgroundTransparency = 1
+        distLabel.Position = UDim2.new(0, 0, 0, 20)
+        distLabel.Size = UDim2.new(1, 0, 0, 20)
+        distLabel.Font = Enum.Font.Gotham
+        distLabel.Text = "0 studs"
+        distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        distLabel.TextSize = 12
+        distLabel.TextStrokeTransparency = 0.5
+        
+        task.spawn(function()
+            while distLabel and distLabel.Parent and HumanoidRootPart and hrp do
+                wait(0.5)
+                local dist = (HumanoidRootPart.Position - hrp.Position).Magnitude
+                distLabel.Text = math.floor(dist) .. " studs"
+            end
+        end)
+    end
+    
+    if settings.health and humanoid then
+        local healthLabel = Instance.new("TextLabel")
+        healthLabel.Parent = billboard
+        healthLabel.BackgroundTransparency = 1
+        healthLabel.Position = UDim2.new(0, 0, 0, 40)
+        healthLabel.Size = UDim2.new(1, 0, 0, 20)
+        healthLabel.Font = Enum.Font.Gotham
+        healthLabel.Text = "100 HP"
+        healthLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        healthLabel.TextSize = 12
+        healthLabel.TextStrokeTransparency = 0.5
+        
+        task.spawn(function()
+            while healthLabel and healthLabel.Parent and humanoid do
+                wait(0.5)
+                local hp = math.floor(humanoid.Health)
+                healthLabel.Text = hp .. " HP"
+                
+                if hp > 75 then
+                    healthLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+                elseif hp > 50 then
+                    healthLabel.TextColor3 = Color3.fromRGB(255, 255, 100)
+                elseif hp > 25 then
+                    healthLabel.TextColor3 = Color3.fromRGB(255, 150, 100)
+                else
+                    healthLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                end
+            end
+        end)
+    end
+    
+    if settings.boxes then
+        local box = Instance.new("BoxHandleAdornment")
+        box.Parent = hrp
+        box.Name = "ESPBox"
+        box.Adornee = hrp
+        box.AlwaysOnTop = true
+        box.ZIndex = 5
+        box.Size = Vector3.new(4, 5, 1)
+        box.Color3 = settings.color
+        box.Transparency = 0.7
+        table.insert(storage[player], box)
+    end
+end
+
+local function UpdateESP()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Team then
+            local teamName = player.Team.Name
+            local isCriminal = teamName:match("Criminal") or teamName:match("Prisoner") or teamName:match("Inmate")
+            local isPolice = teamName:match("Police") or teamName:match("Cop") or teamName:match("Guard")
+            
+            ClearESP(player)
+            
+            if isCriminal and Settings.CriminalESP then
+                CreateESP(player, true)
+            elseif isPolice and Settings.PoliceESP then
+                CreateESP(player, false)
+            end
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    wait(1)
+    UpdateESP()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    ClearESP(player)
+end)
+
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        player.CharacterAdded:Connect(function()
+            wait(1)
+            UpdateESP()
+        end)
+    end
+end
+
+task.spawn(function()
+    while wait(2) do
+        if Settings.CriminalESP or Settings.PoliceESP then
+            UpdateESP()
+        else
+            for player, _ in pairs(ESPObjects.Criminals) do
+                ClearESP(player)
+            end
+            for player, _ in pairs(ESPObjects.Police) do
+                ClearESP(player)
+            end
+        end
+    end
+end)
+
+--[[ AIMBOT SYSTEM ]]--
+
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local function CreateFOVCircle()
+    if FOVCircle then
+        FOVCircle:Remove()
+    end
+    
+    FOVCircle = Drawing.new("Circle")
+    FOVCircle.Thickness = 2
+    FOVCircle.NumSides = 50
+    FOVCircle.Radius = Settings.FOVSize
+    FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+    FOVCircle.Transparency = 1
+    FOVCircle.Visible = Settings.ShowFOV
+    FOVCircle.Filled = false
+end
+
+local function UpdateFOVCircle()
+    if FOVCircle then
+        FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36)
+        FOVCircle.Radius = Settings.FOVSize
+        FOVCircle.Visible = Settings.ShowFOV
+    end
+end
+
+local function IsVisible(target)
+    if not Settings.WallCheck then return true end
+    
+    local origin = Camera.CFrame.Position
+    local direction = (target.Position - origin).Unit * (target.Position - origin).Magnitude
+    
+    local ray = Ray.new(origin, direction)
+    local hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, target.Parent})
+    
+    return hit == nil or hit:IsDescendantOf(target.Parent)
+end
+
+local function GetClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = Settings.FOVSize
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            -- Team check
+            if Settings.TeamCheck and player.Team == LocalPlayer.Team then
+                continue
+            end
+            
+            local character = player.Character
+            local head = character:FindFirstChild("Head")
+            
+            if head and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0 then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                
+                if onScreen then
+                    local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+                    local targetPos = Vector2.new(screenPos.X, screenPos.Y)
+                    local distance = (mousePos - targetPos).Magnitude
+                    
+                    if distance < shortestDistance then
+                        if IsVisible(head) then
+                            closestPlayer = player
+                            shortestDistance = distance
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+-- FOV Circle update loop
+task.spawn(function()
+    CreateFOVCircle()
+    while wait() do
+        UpdateFOVCircle()
+    end
+end)
+
+-- Silent Aim
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local args = {...}
+    local method = getnamecallmethod()
+    
+    if Settings.SilentAim and method == "FireServer" and self.Name == "RemoteEvent" then
+        local target = GetClosestPlayer()
+        if target and target.Character and target.Character:FindFirstChild("Head") then
+            args[2] = target.Character.Head.Position
+        end
+    end
+    
+    return oldNamecall(self, unpack(args))
+end)
+
+-- Triggerbot
+task.spawn(function()
+    while wait(0.1) do
+        if Settings.Triggerbot then
+            local target = Mouse.Target
+            if target and target.Parent and target.Parent:FindFirstChild("Humanoid") then
+                local player = Players:GetPlayerFromCharacter(target.Parent)
+                if player and player ~= LocalPlayer then
+                    if not Settings.TeamCheck or player.Team ~= LocalPlayer.Team then
+                        -- Simulate click
+                        mouse1click()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+--[[ VEHICLE SPEED MODIFIER ]]--
+
+task.spawn(function()
+    while wait(0.5) do
+        pcall(function()
+            if Character then
+                local vehicle = Character:FindFirstChildOfClass("VehicleSeat")
+                if not vehicle then
+                    -- Check if sitting in a vehicle
+                    local humanoid = Character:FindFirstChild("Humanoid")
+                    if humanoid and humanoid.SeatPart and humanoid.SeatPart.Parent then
+                        vehicle = humanoid.SeatPart.Parent:FindFirstChildOfClass("VehicleSeat")
+                    end
+                end
+                
+                if vehicle then
+                    vehicle.MaxSpeed = Settings.VehicleSpeed
+                end
+            end
+        end)
+    end
+end)
 
 --[[ AUTO FUNCTIONS ]]--
 
 task.spawn(function()
-    while true do
-        wait(1)
-        if Settings.AutoRob then
-            pcall(function()
-                if IsInJail() and Settings.AutoEscape then
-                    Escape()
-                    wait(5)
-                    return
-                end
-                
-                if LocalPlayer.Team and (LocalPlayer.Team.Name == "Police" or LocalPlayer.Team.Name == "Cop") then
-                    Status.CurrentAction = "Idle (Police Team)"
-                    wait(5)
-                    return
-                end
-                
-                for _, robbery in pairs(Locations.Robberies) do
-                    if not Settings.AutoRob then 
-                        Status.CurrentAction = "Idle"
-                        break 
-                    end
-                    RobLocation(robbery)
-                    wait(3)
-                end
-                
-                for _, store in pairs(Locations.Stores) do
-                    if not Settings.AutoRob then 
-                        Status.CurrentAction = "Idle"
-                        break 
-                    end
-                    RobLocation(store)
-                    wait(2)
-                end
-                
-                Status.CurrentAction = "Idle"
-            end)
-        else
-            if Status.CurrentAction:match("Robbing") then
-                Status.CurrentAction = "Idle"
-            end
-        end
-    end
-end)
-
-task.spawn(function()
-    while true do
-        wait(1)
+    while wait(2) do
         if Settings.AutoArrest then
             pcall(function()
                 local criminals = FindCriminals()
+                
                 if #criminals == 0 then
-                    Status.CurrentAction = "Searching for Criminals"
-                end
-                
-                for _, criminal in pairs(criminals) do
-                    if not Settings.AutoArrest then 
-                        Status.CurrentAction = "Idle"
-                        break 
+                    UpdateStatus("Searching for criminals")
+                else
+                    for _, criminal in pairs(criminals) do
+                        if not Settings.AutoArrest then 
+                            UpdateStatus("Idle")
+                            break 
+                        end
+                        ArrestPlayer(criminal)
+                        wait(2)
                     end
-                    ArrestPlayer(criminal)
-                    wait(3)
-                end
-                
-                if Settings.AutoArrest then
-                    Status.CurrentAction = "Idle"
                 end
             end)
         else
-            if Status.CurrentAction:match("Arresting") or Status.CurrentAction:match("Searching") then
-                Status.CurrentAction = "Idle"
+            if Status.CurrentAction:match("Arrest") or Status.CurrentAction:match("Searching") then
+                UpdateStatus("Idle")
             end
         end
     end
 end)
 
 task.spawn(function()
-    while true do
-        wait(5)
+    while wait(5) do
         if Settings.AutoEscape and IsInJail() then
             Escape()
         end
     end
 end)
 
+--[[ ANIMATED INTRO ]]--
+
+local function ShowIntro()
+    -- Create intro screen
+    local IntroGui = Instance.new("ScreenGui")
+    IntroGui.Name = "KrackpipeIntro"
+    IntroGui.Parent = game.CoreGui
+    IntroGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    IntroGui.ResetOnSpawn = false
+    
+    local IntroFrame = Instance.new("Frame")
+    IntroFrame.Parent = IntroGui
+    IntroFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    IntroFrame.BorderSizePixel = 0
+    IntroFrame.Size = UDim2.new(1, 0, 1, 0)
+    IntroFrame.BackgroundTransparency = 0
+    
+    -- Script Name
+    local ScriptName = Instance.new("TextLabel")
+    ScriptName.Parent = IntroFrame
+    ScriptName.BackgroundTransparency = 1
+    ScriptName.Position = UDim2.new(0.5, 0, 0.4, 0)
+    ScriptName.Size = UDim2.new(0, 600, 0, 80)
+    ScriptName.AnchorPoint = Vector2.new(0.5, 0.5)
+    ScriptName.Font = Enum.Font.GothamBold
+    ScriptName.Text = "KIMBO'S KRACKPIPE"
+    ScriptName.TextColor3 = Color3.fromRGB(255, 200, 0)
+    ScriptName.TextSize = 48
+    ScriptName.TextTransparency = 1
+    
+    -- Subtitle
+    local Subtitle = Instance.new("TextLabel")
+    Subtitle.Parent = IntroFrame
+    Subtitle.BackgroundTransparency = 1
+    Subtitle.Position = UDim2.new(0.5, 0, 0.5, 0)
+    Subtitle.Size = UDim2.new(0, 400, 0, 40)
+    Subtitle.AnchorPoint = Vector2.new(0.5, 0.5)
+    Subtitle.Font = Enum.Font.Gotham
+    Subtitle.Text = "Welcome to Agartha"
+    Subtitle.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Subtitle.TextSize = 20
+    Subtitle.TextTransparency = 1
+    
+    -- Author
+    local Author = Instance.new("TextLabel")
+    Author.Parent = IntroFrame
+    Author.BackgroundTransparency = 1
+    Author.Position = UDim2.new(0.5, 0, 0.6, 0)
+    Author.Size = UDim2.new(0, 300, 0, 30)
+    Author.AnchorPoint = Vector2.new(0.5, 0.5)
+    Author.Font = Enum.Font.GothamBold
+    Author.Text = "By Kimbo"
+    Author.TextColor3 = Color3.fromRGB(255, 100, 100)
+    Author.TextSize = 18
+    Author.TextTransparency = 1
+    
+    -- Pill icon
+    local PillIcon = Instance.new("TextLabel")
+    PillIcon.Parent = IntroFrame
+    PillIcon.BackgroundTransparency = 1
+    PillIcon.Position = UDim2.new(0.5, 0, 0.3, 0)
+    PillIcon.Size = UDim2.new(0, 100, 0, 100)
+    PillIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+    PillIcon.Font = Enum.Font.GothamBold
+    PillIcon.Text = "💊"
+    PillIcon.TextSize = 72
+    PillIcon.TextTransparency = 1
+    
+    -- Animations
+    task.spawn(function()
+        -- Fade in pill
+        TweenService:Create(PillIcon, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+        wait(0.5)
+        
+        -- Fade in script name
+        TweenService:Create(ScriptName, TweenInfo.new(0.7), {TextTransparency = 0}):Play()
+        wait(0.4)
+        
+        -- Fade in subtitle
+        TweenService:Create(Subtitle, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+        wait(0.3)
+        
+        -- Fade in author
+        TweenService:Create(Author, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+        wait(1.5)
+        
+        -- Fade out everything
+        TweenService:Create(PillIcon, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        TweenService:Create(ScriptName, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        TweenService:Create(Subtitle, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        TweenService:Create(Author, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+        TweenService:Create(IntroFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+        wait(0.6)
+        
+        -- Destroy intro
+        IntroGui:Destroy()
+    end)
+end
+
 --[[ GUI ]]--
 
 local function CreateGUI()
-    -- Destroy existing GUI
-    if game.CoreGui:FindFirstChild("KimbosKasinoGUI") then
-        game.CoreGui:FindFirstChild("KimbosKasinoGUI"):Destroy()
+    if game.CoreGui:FindFirstChild("KimbosKrackpipeGUI") then
+        game.CoreGui:FindFirstChild("KimbosKrackpipeGUI"):Destroy()
     end
     
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "KimbosKasinoGUI"
+    ScreenGui.Name = "KimbosKrackpipeGUI"
     ScreenGui.Parent = game.CoreGui
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     ScreenGui.ResetOnSpawn = false
     
-    -- Main Frame
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = "MainFrame"
     MainFrame.Parent = ScreenGui
     MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
     MainFrame.BorderSizePixel = 0
-    MainFrame.Position = UDim2.new(0.3, 0, 0.2, 0)
-    MainFrame.Size = UDim2.new(0, 450, 0, 500)
+    MainFrame.Position = UDim2.new(0.35, 0, 0.25, 0)
+    MainFrame.Size = UDim2.new(0, 400, 0, 400)
     MainFrame.Active = true
     MainFrame.Draggable = true
-    MainFrame.Visible = true
     
     local MainCorner = Instance.new("UICorner")
     MainCorner.CornerRadius = UDim.new(0, 10)
     MainCorner.Parent = MainFrame
     
-    -- Minimize Button (small icon when minimized)
     local MinimizeIcon = Instance.new("TextButton")
     MinimizeIcon.Name = "MinimizeIcon"
     MinimizeIcon.Parent = ScreenGui
@@ -384,11 +697,10 @@ local function CreateGUI()
     MinimizeIcon.Active = true
     MinimizeIcon.Draggable = true
     
-    local MinimizeIconCorner = Instance.new("UICorner")
-    MinimizeIconCorner.CornerRadius = UDim.new(0, 10)
-    MinimizeIconCorner.Parent = MinimizeIcon
+    local MinIconCorner = Instance.new("UICorner")
+    MinIconCorner.CornerRadius = UDim.new(0, 10)
+    MinIconCorner.Parent = MinimizeIcon
     
-    -- Title Bar
     local TitleBar = Instance.new("Frame")
     TitleBar.Name = "TitleBar"
     TitleBar.Parent = MainFrame
@@ -401,7 +713,6 @@ local function CreateGUI()
     TitleCorner.Parent = TitleBar
     
     local Title = Instance.new("TextLabel")
-    Title.Name = "Title"
     Title.Parent = TitleBar
     Title.BackgroundTransparency = 1
     Title.Size = UDim2.new(0.6, 0, 1, 0)
@@ -412,25 +723,21 @@ local function CreateGUI()
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Position = UDim2.new(0, 15, 0, 0)
     
-    -- Minimize Button
-    local MinimizeBtn = Instance.new("TextButton")
-    MinimizeBtn.Name = "MinimizeBtn"
-    MinimizeBtn.Parent = TitleBar
-    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 200)
-    MinimizeBtn.Position = UDim2.new(1, -80, 0, 10)
-    MinimizeBtn.Size = UDim2.new(0, 30, 0, 30)
-    MinimizeBtn.Font = Enum.Font.GothamBold
-    MinimizeBtn.Text = "_"
-    MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    MinimizeBtn.TextSize = 16
+    local MinBtn = Instance.new("TextButton")
+    MinBtn.Parent = TitleBar
+    MinBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 200)
+    MinBtn.Position = UDim2.new(1, -80, 0, 10)
+    MinBtn.Size = UDim2.new(0, 30, 0, 30)
+    MinBtn.Font = Enum.Font.GothamBold
+    MinBtn.Text = "_"
+    MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MinBtn.TextSize = 16
     
-    local MinimizeBtnCorner = Instance.new("UICorner")
-    MinimizeBtnCorner.CornerRadius = UDim.new(0, 6)
-    MinimizeBtnCorner.Parent = MinimizeBtn
+    local MinBtnCorner = Instance.new("UICorner")
+    MinBtnCorner.CornerRadius = UDim.new(0, 6)
+    MinBtnCorner.Parent = MinBtn
     
-    -- Close Button
     local CloseBtn = Instance.new("TextButton")
-    CloseBtn.Name = "CloseBtn"
     CloseBtn.Parent = TitleBar
     CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
     CloseBtn.Position = UDim2.new(1, -40, 0, 10)
@@ -444,24 +751,19 @@ local function CreateGUI()
     CloseBtnCorner.CornerRadius = UDim.new(0, 6)
     CloseBtnCorner.Parent = CloseBtn
     
-    -- Tab Container
     local TabContainer = Instance.new("Frame")
-    TabContainer.Name = "TabContainer"
     TabContainer.Parent = MainFrame
     TabContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
     TabContainer.BorderSizePixel = 0
     TabContainer.Position = UDim2.new(0, 0, 0, 50)
     TabContainer.Size = UDim2.new(1, 0, 0, 45)
     
-    -- Content Container
     local ContentContainer = Instance.new("Frame")
-    ContentContainer.Name = "ContentContainer"
     ContentContainer.Parent = MainFrame
     ContentContainer.BackgroundTransparency = 1
     ContentContainer.Position = UDim2.new(0, 0, 0, 95)
     ContentContainer.Size = UDim2.new(1, 0, 1, -95)
     
-    -- Helper function to create buttons
     local function CreateButton(parent, text, position, size, color, callback)
         local button = Instance.new("TextButton")
         button.Parent = parent
@@ -482,7 +784,6 @@ local function CreateGUI()
             button.MouseButton1Click:Connect(callback)
         end
         
-        -- Hover effect
         button.MouseEnter:Connect(function()
             TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(
                 math.min(color.R * 255 + 20, 255),
@@ -498,15 +799,18 @@ local function CreateGUI()
         return button
     end
     
-    -- Helper to create toggle button
     local function CreateToggle(parent, text, position, settingKey)
         local isOn = Settings[settingKey]
+        
+        -- No colors - just gray
+        local buttonColor = Color3.fromRGB(60, 60, 70)
+        
         local button = CreateButton(
             parent, 
             text .. ": " .. (isOn and "ON" or "OFF"), 
             position, 
-            UDim2.new(0, 380, 0, 40), 
-            isOn and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(60, 60, 70),
+            UDim2.new(0, 360, 0, 35), 
+            buttonColor,
             nil
         )
         
@@ -515,39 +819,31 @@ local function CreateGUI()
             local newState = Settings[settingKey]
             button.Text = text .. ": " .. (newState and "ON" or "OFF")
             
-            -- Animate color change
-            TweenService:Create(button, TweenInfo.new(0.3), {
-                BackgroundColor3 = newState and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(60, 60, 70)
-            }):Play()
-            
-            print("[KIMBO] " .. text .. " set to: " .. tostring(newState))
+            print("[KRACKPIPE] " .. text .. " = " .. tostring(newState))
         end)
         
         return button
     end
     
-    -- Create content pages
     local pages = {}
     
-    -- HOME PAGE (with live status)
+    -- HOME PAGE
     local HomePage = Instance.new("Frame")
-    HomePage.Name = "HomePage"
     HomePage.Parent = ContentContainer
     HomePage.BackgroundTransparency = 1
     HomePage.Size = UDim2.new(1, 0, 1, 0)
     HomePage.Visible = true
     pages["Home"] = HomePage
     
-    -- Live Status Display
     local StatusFrame = Instance.new("Frame")
     StatusFrame.Parent = HomePage
     StatusFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    StatusFrame.Position = UDim2.new(0, 30, 0, 20)
-    StatusFrame.Size = UDim2.new(0, 380, 0, 180)
+    StatusFrame.Position = UDim2.new(0, 20, 0, 15)
+    StatusFrame.Size = UDim2.new(0, 360, 0, 160)
     
-    local StatusFrameCorner = Instance.new("UICorner")
-    StatusFrameCorner.CornerRadius = UDim.new(0, 8)
-    StatusFrameCorner.Parent = StatusFrame
+    local StatusCorner = Instance.new("UICorner")
+    StatusCorner.CornerRadius = UDim.new(0, 8)
+    StatusCorner.Parent = StatusFrame
     
     local StatusTitle = Instance.new("TextLabel")
     StatusTitle.Parent = StatusFrame
@@ -555,8 +851,8 @@ local function CreateGUI()
     StatusTitle.Position = UDim2.new(0, 15, 0, 10)
     StatusTitle.Size = UDim2.new(1, -30, 0, 25)
     StatusTitle.Font = Enum.Font.GothamBold
-    StatusTitle.Text = "📊 LIVE STATUS"
-    StatusTitle.TextColor3 = Color3.fromRGB(255, 200, 0)
+    StatusTitle.Text = "🔴 LIVE STATUS"
+    StatusTitle.TextColor3 = Color3.fromRGB(255, 100, 100)
     StatusTitle.TextSize = 16
     StatusTitle.TextXAlignment = Enum.TextXAlignment.Left
     
@@ -565,36 +861,32 @@ local function CreateGUI()
     StatusLabel.BackgroundTransparency = 1
     StatusLabel.Position = UDim2.new(0, 15, 0, 40)
     StatusLabel.Size = UDim2.new(1, -30, 1, -50)
-    StatusLabel.Font = Enum.Font.Gotham
+    StatusLabel.Font = Enum.Font.GothamMedium
     StatusLabel.Text = "Initializing..."
-    StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     StatusLabel.TextSize = 13
     StatusLabel.TextWrapped = true
     StatusLabel.TextYAlignment = Enum.TextYAlignment.Top
     StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
     
-    -- Update status label continuously
     task.spawn(function()
-        while true do
-            wait(0.5)
+        while wait(0.3) do
             if StatusLabel and StatusLabel.Parent then
                 local text = string.format(
-                    "Current Action: %s\n\n" ..
-                    "Statistics:\n" ..
-                    "  • Robberies: %d\n" ..
-                    "  • Arrests: %d\n" ..
-                    "  • Escapes: %d\n\n" ..
-                    "Active Features:\n" ..
-                    "  • Auto Rob: %s\n" ..
-                    "  • Auto Arrest: %s\n" ..
-                    "  • Auto Escape: %s",
+                    "Action: %s\n\n" ..
+                    "Stats:\n" ..
+                    "  Arrests: %d\n" ..
+                    "  Escapes: %d\n\n" ..
+                    "Features:\n" ..
+                    "  Silent Aim: %s\n" ..
+                    "  Auto Arrest: %s\n" ..
+                    "  Auto Escape: %s",
                     Status.CurrentAction,
-                    Status.RobberiesCompleted,
                     Status.ArrestsMade,
                     Status.EscapesMade,
-                    Settings.AutoRob and "✓" or "✗",
-                    Settings.AutoArrest and "✓" or "✗",
-                    Settings.AutoEscape and "✓" or "✗"
+                    Settings.SilentAim and "✓ ON" or "✗ OFF",
+                    Settings.AutoArrest and "✓ ON" or "✗ OFF",
+                    Settings.AutoEscape and "✓ ON" or "✗ OFF"
                 )
                 StatusLabel.Text = text
             else
@@ -603,130 +895,184 @@ local function CreateGUI()
         end
     end)
     
-    -- Quick Actions
-    CreateButton(HomePage, "💀 Respawn", UDim2.new(0, 30, 0, 220), UDim2.new(0, 180, 0, 40), Color3.fromRGB(192, 57, 43), function()
+    CreateButton(HomePage, "💀 Respawn", UDim2.new(0, 20, 0, 190), UDim2.new(0, 170, 0, 35), Color3.fromRGB(192, 57, 43), function()
         if Character and Character:FindFirstChild("Humanoid") then
             Character.Humanoid.Health = 0
         end
-        Notify("💀 Self Delete", "Respawning your broken avatar")
+        Notify("💀 Respawning", "Resetting")
     end)
     
-    CreateButton(HomePage, "🔄 Rescan", UDim2.new(0, 230, 0, 220), UDim2.new(0, 180, 0, 40), Color3.fromRGB(155, 89, 182), function()
-        ScanLocations()
-        Notify("🔍 Scanning", "Finding new licks...")
-    end)
-    
-    CreateButton(HomePage, "🚨 Escape Now", UDim2.new(0, 30, 0, 280), UDim2.new(0, 380, 0, 40), Color3.fromRGB(230, 126, 34), function()
+    CreateButton(HomePage, "🚨 Escape", UDim2.new(0, 210, 0, 190), UDim2.new(0, 170, 0, 35), Color3.fromRGB(230, 126, 34), function()
         Escape()
     end)
     
-    -- Criminal Page
-    local CriminalPage = Instance.new("Frame")
-    CriminalPage.Name = "CriminalPage"
-    CriminalPage.Parent = ContentContainer
-    CriminalPage.BackgroundTransparency = 1
-    CriminalPage.Size = UDim2.new(1, 0, 1, 0)
-    CriminalPage.Visible = false
-    pages["Criminal"] = CriminalPage
+    -- AIMBOT PAGE
+    local AimbotPage = Instance.new("Frame")
+    AimbotPage.Parent = ContentContainer
+    AimbotPage.BackgroundTransparency = 1
+    AimbotPage.Size = UDim2.new(1, 0, 1, 0)
+    AimbotPage.Visible = false
+    pages["Aimbot"] = AimbotPage
     
-    CreateToggle(CriminalPage, "Auto Rob", UDim2.new(0, 30, 0, 20), "AutoRob")
-    CreateToggle(CriminalPage, "Auto Escape", UDim2.new(0, 30, 0, 70), "AutoEscape")
-    CreateToggle(CriminalPage, "Auto Farm Items", UDim2.new(0, 30, 0, 120), "AutoFarm")
+    local aimbotLabel = Instance.new("TextLabel")
+    aimbotLabel.Parent = AimbotPage
+    aimbotLabel.BackgroundTransparency = 1
+    aimbotLabel.Position = UDim2.new(0, 20, 0, 10)
+    aimbotLabel.Size = UDim2.new(1, -40, 0, 20)
+    aimbotLabel.Font = Enum.Font.GothamBold
+    aimbotLabel.Text = "━━━━ AIMBOT ━━━━"
+    aimbotLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    aimbotLabel.TextSize = 13
     
-    local crimInfo = Instance.new("TextLabel")
-    crimInfo.Parent = CriminalPage
-    crimInfo.BackgroundTransparency = 1
-    crimInfo.Position = UDim2.new(0, 30, 0, 180)
-    crimInfo.Size = UDim2.new(0, 380, 0, 100)
-    crimInfo.Font = Enum.Font.Gotham
-    crimInfo.Text = "🏴 Criminal Features\n\nAuto Rob hits every location automatically.\nGet that bag while you AFK.\n\nAuto Escape gets you out when the cops show up."
-    crimInfo.TextColor3 = Color3.fromRGB(200, 200, 200)
-    crimInfo.TextSize = 13
-    crimInfo.TextWrapped = true
-    crimInfo.TextYAlignment = Enum.TextYAlignment.Top
-    crimInfo.TextXAlignment = Enum.TextXAlignment.Left
+    CreateToggle(AimbotPage, "Silent Aim", UDim2.new(0, 20, 0, 35), "SilentAim")
+    CreateToggle(AimbotPage, "Triggerbot", UDim2.new(0, 20, 0, 80), "Triggerbot")
+    CreateToggle(AimbotPage, "Show FOV", UDim2.new(0, 20, 0, 125), "ShowFOV")
+    CreateToggle(AimbotPage, "Wall Check", UDim2.new(0, 20, 0, 170), "WallCheck")
+    CreateToggle(AimbotPage, "Team Check", UDim2.new(0, 20, 0, 215), "TeamCheck")
     
-    -- Police Page
+    -- CRIMINALS PAGE
+    local CriminalsPage = Instance.new("Frame")
+    CriminalsPage.Parent = ContentContainer
+    CriminalsPage.BackgroundTransparency = 1
+    CriminalsPage.Size = UDim2.new(1, 0, 1, 0)
+    CriminalsPage.Visible = false
+    pages["Criminals"] = CriminalsPage
+    
+    CreateToggle(CriminalsPage, "Auto Escape", UDim2.new(0, 20, 0, 15), "AutoEscape")
+    
+    -- POLICE PAGE
     local PolicePage = Instance.new("Frame")
-    PolicePage.Name = "PolicePage"
     PolicePage.Parent = ContentContainer
     PolicePage.BackgroundTransparency = 1
     PolicePage.Size = UDim2.new(1, 0, 1, 0)
     PolicePage.Visible = false
     pages["Police"] = PolicePage
     
-    CreateToggle(PolicePage, "Auto Arrest", UDim2.new(0, 30, 0, 20), "AutoArrest")
+    CreateToggle(PolicePage, "Auto Arrest", UDim2.new(0, 20, 0, 15), "AutoArrest")
     
-    local policeInfo = Instance.new("TextLabel")
-    policeInfo.Parent = PolicePage
-    policeInfo.BackgroundTransparency = 1
-    policeInfo.Position = UDim2.new(0, 30, 0, 80)
-    policeInfo.Size = UDim2.new(0, 380, 0, 100)
-    policeInfo.Font = Enum.Font.Gotham
-    policeInfo.Text = "👮 Police Features\n\nAuto Arrest hunts down criminals\nand cuffs them automatically.\n\nBe a hero or just farm arrests. Your choice."
-    policeInfo.TextColor3 = Color3.fromRGB(200, 200, 200)
-    policeInfo.TextSize = 13
-    policeInfo.TextWrapped = true
-    policeInfo.TextYAlignment = Enum.TextYAlignment.Top
-    policeInfo.TextXAlignment = Enum.TextXAlignment.Left
+    -- ESP PAGE (Criminal + Police ESP)
+    local ESPPage = Instance.new("Frame")
+    ESPPage.Parent = ContentContainer
+    ESPPage.BackgroundTransparency = 1
+    ESPPage.Size = UDim2.new(1, 0, 1, 0)
+    ESPPage.Visible = false
+    pages["ESP"] = ESPPage
     
-    -- Settings Page
+    local crimEspLabel = Instance.new("TextLabel")
+    crimEspLabel.Parent = ESPPage
+    crimEspLabel.BackgroundTransparency = 1
+    crimEspLabel.Position = UDim2.new(0, 20, 0, 10)
+    crimEspLabel.Size = UDim2.new(1, -40, 0, 20)
+    crimEspLabel.Font = Enum.Font.GothamBold
+    crimEspLabel.Text = "━━━━ CRIMINAL ESP ━━━━"
+    crimEspLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    crimEspLabel.TextSize = 13
+    
+    local crimEspToggle = CreateToggle(ESPPage, "Enable Criminal ESP", UDim2.new(0, 20, 0, 35), "CriminalESP")
+    crimEspToggle.MouseButton1Click:Connect(function()
+        wait(0.1)
+        UpdateESP()
+    end)
+    
+    CreateToggle(ESPPage, "Names", UDim2.new(0, 20, 0, 80), "CriminalNames")
+    CreateToggle(ESPPage, "Boxes", UDim2.new(0, 20, 0, 125), "CriminalBoxes")
+    CreateToggle(ESPPage, "Distance", UDim2.new(0, 20, 0, 170), "CriminalDistance")
+    CreateToggle(ESPPage, "Health", UDim2.new(0, 20, 0, 215), "CriminalHealth")
+    
+    -- Police ESP in same section
+    local policeEspLabel = Instance.new("TextLabel")
+    policeEspLabel.Parent = ESPPage
+    policeEspLabel.BackgroundTransparency = 1
+    policeEspLabel.Position = UDim2.new(0.5, 10, 0, 10)
+    policeEspLabel.Size = UDim2.new(0.5, -30, 0, 20)
+    policeEspLabel.Font = Enum.Font.GothamBold
+    policeEspLabel.Text = "━━━━ POLICE ESP ━━━━"
+    policeEspLabel.TextColor3 = Color3.fromRGB(100, 150, 255)
+    policeEspLabel.TextSize = 13
+    
+    local policeEspToggle = CreateToggle(ESPPage, "Enable Police ESP", UDim2.new(0.5, 10, 0, 35), "PoliceESP")
+    policeEspToggle.MouseButton1Click:Connect(function()
+        wait(0.1)
+        UpdateESP()
+    end)
+    
+    CreateToggle(ESPPage, "Names", UDim2.new(0.5, 10, 0, 80), "PoliceNames")
+    CreateToggle(ESPPage, "Boxes", UDim2.new(0.5, 10, 0, 125), "PoliceBoxes")
+    CreateToggle(ESPPage, "Distance", UDim2.new(0.5, 10, 0, 170), "PoliceDistance")
+    CreateToggle(ESPPage, "Health", UDim2.new(0.5, 10, 0, 215), "PoliceHealth")
+    
+    -- SETTINGS PAGE
     local SettingsPage = Instance.new("Frame")
-    SettingsPage.Name = "SettingsPage"
     SettingsPage.Parent = ContentContainer
     SettingsPage.BackgroundTransparency = 1
     SettingsPage.Size = UDim2.new(1, 0, 1, 0)
     SettingsPage.Visible = false
     pages["Settings"] = SettingsPage
     
-    CreateToggle(SettingsPage, "Use Vehicles", UDim2.new(0, 30, 0, 20), "UseVehicles")
-    CreateToggle(SettingsPage, "Anti-AFK", UDim2.new(0, 30, 0, 70), "AntiAFK")
+    CreateToggle(SettingsPage, "Anti-AFK", UDim2.new(0, 20, 0, 15), "AntiAFK")
     
-    CreateButton(SettingsPage, "💾 Save Config", UDim2.new(0, 30, 0, 140), UDim2.new(0, 180, 0, 40), Color3.fromRGB(39, 174, 96), function()
+    -- Vehicle Speed
+    local speedLabel = Instance.new("TextLabel")
+    speedLabel.Parent = SettingsPage
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Position = UDim2.new(0, 20, 0, 65)
+    speedLabel.Size = UDim2.new(0, 360, 0, 20)
+    speedLabel.Font = Enum.Font.GothamBold
+    speedLabel.Text = "Vehicle Speed: " .. Settings.VehicleSpeed
+    speedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    speedLabel.TextSize = 13
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local speedSlider = Instance.new("TextBox")
+    speedSlider.Parent = SettingsPage
+    speedSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+    speedSlider.Position = UDim2.new(0, 20, 0, 90)
+    speedSlider.Size = UDim2.new(0, 360, 0, 35)
+    speedSlider.Font = Enum.Font.Gotham
+    speedSlider.PlaceholderText = "Enter speed (50-500)"
+    speedSlider.Text = tostring(Settings.VehicleSpeed)
+    speedSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedSlider.TextSize = 14
+    speedSlider.ClearTextOnFocus = false
+    
+    local sliderCorner = Instance.new("UICorner")
+    sliderCorner.CornerRadius = UDim.new(0, 8)
+    sliderCorner.Parent = speedSlider
+    
+    speedSlider.FocusLost:Connect(function()
+        local value = tonumber(speedSlider.Text)
+        if value and value >= 50 and value <= 500 then
+            Settings.VehicleSpeed = value
+            speedLabel.Text = "Vehicle Speed: " .. value
+            Notify("🚗 Speed Set", value .. " studs/s")
+        else
+            speedSlider.Text = tostring(Settings.VehicleSpeed)
+            Notify("❌ Invalid", "Use 50-500")
+        end
+    end)
+    
+    CreateButton(SettingsPage, "💾 Save Config", UDim2.new(0, 20, 0, 140), UDim2.new(0, 170, 0, 35), Color3.fromRGB(39, 174, 96), function()
         SaveConfig()
     end)
     
-    CreateButton(SettingsPage, "📁 Load Config", UDim2.new(0, 230, 0, 140), UDim2.new(0, 180, 0, 40), Color3.fromRGB(52, 152, 219), function()
+    CreateButton(SettingsPage, "📁 Load Config", UDim2.new(0, 210, 0, 140), UDim2.new(0, 170, 0, 35), Color3.fromRGB(52, 152, 219), function()
         LoadConfig()
     end)
     
-    local settingsInfo = Instance.new("TextLabel")
-    settingsInfo.Parent = SettingsPage
-    settingsInfo.BackgroundTransparency = 1
-    settingsInfo.Position = UDim2.new(0, 30, 0, 200)
-    settingsInfo.Size = UDim2.new(0, 380, 0, 150)
-    settingsInfo.Font = Enum.Font.Gotham
-    settingsInfo.Text = string.format(
-        "⚙️ Configuration\n\n" ..
-        "Flight Height: %dm (Anti-Cheat Safe)\n" ..
-        "Flight Speed: %d studs/s\n\n" ..
-        "Version: 4.0.0 - JB2026\n" ..
-        "Locations: %d robberies, %d stores",
-        Settings.FlightHeight,
-        Settings.FlightSpeed,
-        #Locations.Robberies,
-        #Locations.Stores
-    )
-    settingsInfo.TextColor3 = Color3.fromRGB(150, 150, 150)
-    settingsInfo.TextSize = 12
-    settingsInfo.TextWrapped = true
-    settingsInfo.TextYAlignment = Enum.TextYAlignment.Top
-    settingsInfo.TextXAlignment = Enum.TextXAlignment.Left
-    
     -- Create tabs
-    local tabs = {"Home", "Criminal", "Police", "Settings"}
+    local tabs = {"Home", "Aimbot", "Criminals", "ESP", "Police", "Settings"}
     local currentTab = "Home"
     
     for i, tabName in ipairs(tabs) do
         local tabButton = Instance.new("TextButton")
         tabButton.Parent = TabContainer
         tabButton.BackgroundColor3 = tabName == currentTab and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(50, 50, 60)
-        tabButton.Position = UDim2.new((i-1) * 0.25, 0, 0, 5)
-        tabButton.Size = UDim2.new(0.24, 0, 0, 35)
+        tabButton.Position = UDim2.new((i-1) * 0.166, 0, 0, 5)
+        tabButton.Size = UDim2.new(0.16, 0, 0, 35)
         tabButton.Font = Enum.Font.GothamBold
         tabButton.Text = tabName
         tabButton.TextColor3 = tabName == currentTab and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
-        tabButton.TextSize = 13
+        tabButton.TextSize = 11
         tabButton.AutoButtonColor = false
         
         local tabCorner = Instance.new("UICorner")
@@ -734,16 +1080,13 @@ local function CreateGUI()
         tabCorner.Parent = tabButton
         
         tabButton.MouseButton1Click:Connect(function()
-            -- Hide all pages
             for _, page in pairs(pages) do
                 page.Visible = false
             end
             
-            -- Show selected page
             pages[tabName].Visible = true
             currentTab = tabName
             
-            -- Update all tab buttons
             for _, child in pairs(TabContainer:GetChildren()) do
                 if child:IsA("TextButton") then
                     if child.Text == tabName then
@@ -758,11 +1101,9 @@ local function CreateGUI()
         end)
     end
     
-    -- Minimize/Maximize functionality
-    MinimizeBtn.MouseButton1Click:Connect(function()
+    MinBtn.MouseButton1Click:Connect(function()
         MainFrame.Visible = false
         MinimizeIcon.Visible = true
-        Notify("📦 Hidden", "Click the pill to come back")
     end)
     
     MinimizeIcon.MouseButton1Click:Connect(function()
@@ -770,30 +1111,23 @@ local function CreateGUI()
         MinimizeIcon.Visible = false
     end)
     
-    -- Close button functionality
     CloseBtn.MouseButton1Click:Connect(function()
         ScreenGui:Destroy()
     end)
     
-    -- Load config on GUI creation
     LoadConfig()
 end
 
---[[ INITIALIZATION ]]--
+--[[ INIT ]]--
 
-Notify("💊 Kimbo's Krackpipe", "Script loaded, welcome to Agartha")
+print("[KRACKPIPE] Loading Kimbo's Krackpipe v4.2.0...")
 
-wait(1)
+ShowIntro()
 
-ScanLocations()
-
-wait(0.5)
+wait(4) -- Wait for intro to finish
 
 CreateGUI()
 
-Notify("✅ Ready", "Time to get this bread")
-
-print("[KIMBO] ✅ Krackpipe loaded successfully!")
-print("[KIMBO] Version: 4.0.0 - Agartha Edition")
-print("[KIMBO] Robberies found: " .. #Locations.Robberies)
-print("[KIMBO] Welcome to the underground")
+Notify("✅ Ready", "Krackpipe active")
+print("[KRACKPIPE] ✅ Loaded successfully")
+print("[KRACKPIPE] Welcome to Agartha - By Kimbo")
